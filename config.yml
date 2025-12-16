@@ -1,0 +1,11 @@
+global:
+  http_server_port: 9100        # Prometheus exporter HTTP port
+  scrap_interval: 15            # seconds between measurements
+  tags:
+    location: "lab1"            # global labels
+    device: "Graphix"
+    device_serial_number: "001"
+  
+graphix:
+  port: "COM5"
+  baudrate: 9600
