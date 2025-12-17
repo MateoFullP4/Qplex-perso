@@ -1,6 +1,3 @@
-#! /usr/bin/env python3
-"""Prometheus exporter for Graphix pressure gauge"""
-
 import time
 import os
 import logging
@@ -11,13 +8,10 @@ import serial
 import yaml
 from prometheus_client import start_http_server, Gauge, Enum, Info
 
-# ----------------------------
-# Global variables
-# ----------------------------
+
 SI = 0x0F
 EOT = 0x04
 SEPARATOR = ';'
-
 VERSION = "0.1"
 NAME = "Graphix Prometheus Exporter"
 ROOT = Path(os.path.dirname(__file__))
