@@ -1,3 +1,8 @@
+"""
+This file only serves as an easier and more readable way to code main.py
+All the parameters needed are written here for a more modular code. 
+"""
+
 GLOBAL_CONFIG = {
     "http_server_port": 8080, # Port to the Prometheus server
     "scrap_interval": 5,     
@@ -10,7 +15,7 @@ GLOBAL_CONFIG = {
 
 GRAPHIX_CONFIG = {
     "uart_id": 0,           
-    "tx_pin": 0,            
+    "tx_pin": 0,           
     "rx_pin": 1,           
     "baudrate": 9600        
 }
