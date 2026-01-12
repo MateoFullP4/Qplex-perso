@@ -5,10 +5,10 @@ import time
 # Define main parameters
 
 TOTAL_STEPS = 15 # Between 2 and 64
-TIME_BETWEEN_STEPS = 15 # in minutes
-FINAL_TEMPERATURE = 200 # in Celsius 
+TIME_BETWEEN_STEPS = 1 # in minutes
+FINAL_TEMPERATURE = 100 # in Celsius 
 MAX_STEPS_PER_PATTERN = 8
-PORT = 'COM7'
+PORT = 'COM8'
 
 
 # -------------------------------------   Instrument setup   -----------------------------------------------
@@ -92,10 +92,16 @@ def program_all_paterns():
     temperatures = generate_temperatures()
 
     patterns = list(chunk(temperatures, MAX_STEPS_PER_PATTERN))
+    count = 0
     for p_index, steps in enumerate(patterns):
         for s_index, T in enumerate(steps):
             temp_reg = int("0x2000",0) + p_index*8 + s_index
             time_reg = int("0x2080",0) + p_index*8 + s_index
+            
+
+            if count > 1:
+                instrument.write_bit(int("0x0813",0), 0)
+            
 
             safe_write(temp_reg, int(round(T * 10)))
             safe_write(time_reg, TIME_BETWEEN_STEPS)
@@ -119,7 +125,15 @@ def program_all_paterns():
     
     # Start Program Mode
     safe_write(0x1005, 3)
+    
+    # AT On
+    instrument.write_bit(0x0813, 1)
 
+    # Run Program
+    instrument.write_bit(0x0814, 1)
+
+
+program_all_paterns()
 
 
 
