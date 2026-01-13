@@ -22,11 +22,13 @@ import machine
 import gc
 import sys
 
+# --- Configuration & Constants ---
 # Import the variables of the configuration from config.py
 from config import (
     GLOBAL_CONFIG, GRAPHIX_CONFIG, NETWORK_CONFIG,
     SI, EOT, SEPARATOR, VERSION, NAME)
 
+# --- Global System States ---
 # Global states for tracking pressure and system status
 pressure_value = None
 scraper_status = "starting"
