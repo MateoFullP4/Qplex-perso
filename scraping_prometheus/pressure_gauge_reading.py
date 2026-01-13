@@ -1,3 +1,14 @@
+"""
+This code is designed to access and read the pressure value given by a Graphix One controller by Leybold :
+https://www.idealvac.com/files/manuals/Leybold_GRAPHIX_123_Instruction_Manual.pdf?srsltid=AfmBOoqdN6HQTN063OsilJ9S7iyruV-MYv_djclDzcOr8JYWnCZSRBMs
+This code was used as a first try to setup and relay data to a Prometheus server. 
+A more developped version (compatible with MicroPython) can be found in the wiznet folder. 
+
+Please note that this code does not setup a local server through ethernet, and that it can not be downloaded
+as such on a W5500-EVB-pico and only serves as a draft.
+
+The 'PORT' variable can vary depending on if you're using Linux of Windows. 
+"""
 import time
 import os
 import logging
@@ -8,88 +19,131 @@ import serial
 import yaml
 from prometheus_client import start_http_server, Gauge, Enum, Info
 
+# --- Protocol Constants ---
+SI = 0x0F        # Start Header (Shift In)
+EOT = 0x04       # End Of Transmission
+SEPARATOR = ';'  # Delimiter for Group/Parameter commands
 
-SI = 0x0F
-EOT = 0x04
-SEPARATOR = ';'
+# --- Metadata ---
 VERSION = "0.1"
 NAME = "Graphix Prometheus Exporter"
 ROOT = Path(os.path.dirname(__file__))
+
+# --- Global State ---
 CONFIG_FILE_PATH = None
 CONFIG = {}
 METRICS = {}
 GLOBAL_TAGS = {}
 
-# ----------------------------
-# Logger
-# ----------------------------
+# --- Logger Configuration ---
 fmt = "[%(asctime)s] - %(name)s - %(levelname)s - %(message)s"
 logging.basicConfig(format=fmt, datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ----------------------------
-# Functions
-# ----------------------------
-def file_path(string):
-    if os.path.isfile(string):
-        return Path(string)
+
+def file_path(path: str):
+    """
+    Checks if a string path is a valid existing file
+    Args:
+        path (str): path to the file
+    """
+    if os.path.isfile(path):
+        return Path(path)
     else:
-        raise FileNotFoundError(string)
+        raise FileNotFoundError(path)
+    
 
 def load_config():
+    """
+    Loads the .yaml configuration and initializes global metadata tags. 
+    """
     global CONFIG, GLOBAL_TAGS
     with CONFIG_FILE_PATH.open() as file:
         CONFIG = yaml.safe_load(file)
     GLOBAL_TAGS = CONFIG["global"]["tags"]
     logger.info(f"Configuration loaded: {CONFIG}")
 
+
 def calculate_crc(data: bytes) -> bytes:
+    """
+    Calculates the bit checksum for the Graphix One protocol. 
+    Please note that this protocol is detailled in the manual. 
+    Args:
+        data (bytes): address sent to the Graphix One in bytes 
+    """
     total = sum(data) % 256
     crc_value = 255 - total
     if crc_value < 32:
         crc_value += 32
     return bytes([crc_value])
 
+
 def get_graphix_parameter(group: int, parameter: int, port: str, baudrate: int):
+    """
+    Enable communication with the Graphix One through a Serial protocol. 
+    Constructs the frame: [SI] + data + [CRC] + [EOT]
+    Args:
+        group (int): group of the parameter we want to access
+        parameter (int): address within the group of the parameter
+        port (str): port of the serial connection (can vary between Windows and Linux)
+        baudrate (int): can be read on the screen of the Graphix One (by default 9600)
+    """
     try:
         with serial.Serial(port, baudrate, timeout=1) as ser:
             command_str = f"{group}{SEPARATOR}{parameter}{SEPARATOR}"
             command_bytes = bytes([SI]) + command_str.encode('ascii')
             crc = calculate_crc(command_bytes)
             message = command_bytes + crc + bytes([EOT])
+
             ser.write(message)
-            time.sleep(0.2)
+            time.sleep(0.2) # Hardware processing delay
+
             response = ser.read_all()
             if not response:
                 return None
+            
+            # Trim EOT from the end of response
             if response[-1] == EOT:
                 response = response[:-1]
             return response
     except serial.SerialException as e:
         logger.error(f"Serial error: {e}")
         return None
+    
 
 def parse_parameter_value(response: bytes):
+    """
+    Extracts a float value from the controller's byte response.
+    Args: 
+        response (bytes): raw response of the Graphix One. 
+    """
     if not response:
         return None
+    
     body = response
-    if body[0] == 0x06:  # ACK
+    if body[0] == 0x06:  # Strip ASCII Acknowledge (ACK)
         body = body[1:]
-    if body[-1] == 0x04:  # EOT
+    if body[-1] == 0x04:  # Strip EOT if present in body
         body = body[:-1]
+
+    # Filter for characters valid in a scientific notation float
     value_str = ''.join([chr(b) for b in body if chr(b) in '0123456789.-+eE'])
     try:
         return float(value_str)
     except:
         return None
 
+
 def setup_prometheus_server():
+    """
+    Initializes the HTTP server and defines the metrics.
+    """
     global METRICS
     port = CONFIG["global"]["http_server_port"]
     start_http_server(port)
     logger.info(f"Prometheus HTTP server started on port {port}")
 
-    # Info metric
+    # Static metadata about the program
     i = Info(
         name="program_information",
         documentation="Program information",
@@ -97,7 +151,7 @@ def setup_prometheus_server():
     )
     i.labels(**GLOBAL_TAGS).info({"name": NAME, "version": VERSION})
 
-    # Status enum
+    # Tracks the status of the scraper
     status = Enum(
         name="scraper_status",
         documentation="Scraper status",
@@ -107,7 +161,7 @@ def setup_prometheus_server():
     status.labels(**GLOBAL_TAGS).state("starting")
     METRICS["status"] = status
 
-    # Pressure gauge
+    # Primary data point (in Pascals)
     pressure = Gauge(
         name="pressure_value",
         documentation="Pressure gauge value",
@@ -116,7 +170,11 @@ def setup_prometheus_server():
     )
     METRICS["pressure"] = pressure
 
+
 def measure_and_update():
+    """
+    Single tick of the measurement cycle: Read -> Parse -> Export.
+    """
     global METRICS
     port = CONFIG["graphix"]["port"]
     baudrate = CONFIG["graphix"]["baudrate"]
@@ -132,7 +190,11 @@ def measure_and_update():
         METRICS["status"].labels(**GLOBAL_TAGS).state("error")
         logger.warning("Failed to read pressure value")
 
+
 def start_monitoring():
+    """
+    Infinitely loops based on the configured scrap interval.
+    """
     interval = CONFIG["global"]["scrap_interval"]
     METRICS["status"].labels(**GLOBAL_TAGS).state("running")
     logger.info("Starting measurement loop...")
@@ -140,25 +202,27 @@ def start_monitoring():
         measure_and_update()
         time.sleep(interval)
 
-# ----------------------------
-# Main
-# ----------------------------
+
 def main():
     load_config()
     setup_prometheus_server()
     start_monitoring()
 
+
 if __name__ == "__main__":
+    # --- Command Line Argument Parsing ---
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", type=file_path, help="Config file path")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
+    # Determine config path
     if args.config:
         CONFIG_FILE_PATH = args.config
     else:
         CONFIG_FILE_PATH = ROOT / "config.yml"
 
+    # Set log level based on --debug flag
     if args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled")
