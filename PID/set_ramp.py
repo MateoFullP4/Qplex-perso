@@ -18,12 +18,14 @@ import numpy as np
 import time 
 
 # --- Configuration Constants ---
-TOTAL_STEPS = 15            # Total sequence steps (2 to 64)
-TIME_BETWEEN_STEPS = 1      # Duration of each step in minutes
-FINAL_TEMPERATURE = 100     # Target final temperature in Celsius 
+TOTAL_STEPS = 5         # Total sequence steps (2 to 64)
+TIME_BETWEEN_STEPS = 60     # Duration of each step in minutes
+TIME_FIRST_STEP = 1         # Duration of the first step to avoid overshooting
+FINAL_TEMPERATURE = 150     # Target final temperature in Celsius 
 MAX_STEPS_PER_PATTERN = 8   # CN7500 hardware limit per pattern
 PORT = 'COM8'               # Serial port identifier
 SLAVE_ADDRESS = 1           # Modbus slave ID
+CLEAR_PATTERNS = True       # If set to True, this will clear all already existing patterns on the PID
 
 
 # --- Instrument Initialization ---
@@ -86,19 +88,13 @@ def generate_temperatures():
         raise ValueError("The total number of steps must be between 1 and 64") 
     
     room_temperature = read_pv()
-    
-    if TOTAL_STEPS == 1:
-        return [float(room_temperature)]
-    
-    # Initial small step to tune the PID and avoid overshooting
-    first_target = room_temperature + 1.0
-    if TOTAL_STEPS == 2:
-        return [float(room_temperature), float(first_target)]
+    first_target = float(room_temperature)+1.0
     
     # Calculate linear ramp for the remaining steps    
-    remaining_steps = TOTAL_STEPS - 2
-    linear_part = np.linspace(first_target, FINAL_TEMPERATURE, remaining_steps+1)
-    temperatures = [float(room_temperature)] + list(linear_part)
+ 
+    linear_part = np.linspace(first_target, FINAL_TEMPERATURE, TOTAL_STEPS)
+    temperatures = linear_part.tolist()
+  
 
     return temperatures
 
@@ -114,10 +110,44 @@ def chunk(lst, n):
         yield lst[i:i+n]
 
 
+def clear_all_patterns():
+    """
+    Reset all existing patterns and steps to zero to avoid overlapping with
+    previous runs.
+    """
+    print("Clearing patterns in existence")
+
+    TOTAL_PATTERNS = 8
+    STEPS_PER_PATTERN = 8
+
+    for p in range(TOTAL_PATTERNS):
+        for s in range(STEPS_PER_PATTERN):
+            temp_reg = int("0x2000", 0) + p * 8 + s
+            time_reg = int("0x2080", 0) + p * 8 + s
+
+            # Set temperature and time to zero
+            safe_write(temp_reg, 0)
+            safe_write(time_reg, 0)
+
+        # Set number of steps to 0
+        safe_write(0x1040 + p, 0)
+
+        # Set cycle count to 0
+        safe_write(0x1050 + p, 0)
+
+        # Set pattern link to "End of Program"
+        safe_write(0x1060 + p, 0x08)
+
+    print("All patterns cleared.")
+
+
 def program_all_paterns():
     """
     Main sequence to configure patterns, links, and steps on the CN7500, then executes the heating program.
     """
+    if CLEAR_PATTERNS:
+        clear_all_patterns()
+
     temperatures = generate_temperatures()
 
     # CN7500 organizes steps into 'Patterns' of up to 8 steps each
@@ -137,7 +167,13 @@ def program_all_paterns():
             
             # Note: Temperature is usually stored as (Temp * 10) in the controller
             safe_write(temp_reg, int(round(T * 10)))
-            safe_write(time_reg, TIME_BETWEEN_STEPS)
+
+            if count == 0:
+                current_step_time = TIME_FIRST_STEP
+            else:
+                current_step_time = TIME_BETWEEN_STEPS
+
+            safe_write(time_reg, current_step_time)
             count += 1
 
         # Set the 'Actual Number of Steps' for the current pattern (0-indexed)
