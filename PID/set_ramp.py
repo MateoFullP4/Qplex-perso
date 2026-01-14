@@ -18,10 +18,10 @@ import numpy as np
 import time 
 
 # --- Configuration Constants ---
-TOTAL_STEPS = 5         # Total sequence steps (2 to 64)
-TIME_BETWEEN_STEPS = 60     # Duration of each step in minutes
+TOTAL_STEPS = 2         # Total sequence steps (2 to 64)
+TIME_BETWEEN_STEPS = 20     # Duration of each step in minutes
 TIME_FIRST_STEP = 1         # Duration of the first step to avoid overshooting
-FINAL_TEMPERATURE = 150     # Target final temperature in Celsius 
+FINAL_TEMPERATURE = 100     # Target final temperature in Celsius 
 MAX_STEPS_PER_PATTERN = 8   # CN7500 hardware limit per pattern
 PORT = 'COM8'               # Serial port identifier
 SLAVE_ADDRESS = 1           # Modbus slave ID
