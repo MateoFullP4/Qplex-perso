@@ -32,24 +32,27 @@ instrument.serial.timeout = 0.5
 instrument.serial.parity = minimalmodbus.serial.PARITY_EVEN
 instrument.mode = minimalmodbus.MODE_RTU
 
+# --- Define global variable DATA ---
 
-def read_controller_data():
-    """
-    Reads PID parameters and the full step/pattern memory from the CN7800.
-    Returns a dictionary containing the structured data.
-    """
-    data = {
+DATA = {
         "PID": {},
         "Np": 0, 
         "Ns": 0,
         "Steps": np.zeros((TOTAL_PATTERNS, STEPS_PER_PATTERN, 2))
     }
 
+
+def read_controller_data():
+    """
+    Reads PID parameters and the full step/pattern memory from the CN7800.
+    Returns a dictionary containing the structured data.
+    """
+
     try:
         # Read PID parameters
-        data["PID"]["P"] = instrument.read_register(0x1009, 1)
-        data["PID"]["Ti"] = instrument.read_register(0x100A, 0)
-        data["PID"]["Td"] = instrument.read_register(0x100B, 0)
+        DATA["PID"]["P"] = instrument.read_register(0x1009, 1)
+        DATA["PID"]["Ti"] = instrument.read_register(0x100A, 0)
+        DATA["PID"]["Td"] = instrument.read_register(0x100B, 0)
 
         # Read programmed patterns and steps
         total_steps_counter = 0
@@ -76,25 +79,37 @@ def read_controller_data():
                 raw_temp = instrument.read_register(temp_reg, 1)
                 raw_time = instrument.read_register(time_reg, 0)
 
-                data["Steps"][p][s][0] = raw_temp 
-                data["Steps"][p][s][1] = raw_time
+                DATA["Steps"][p][s][0] = raw_temp 
+                DATA["Steps"][p][s][1] = raw_time
 
                 # Increment total steps if the step has a defined time/temp
                 if s < actual_steps_in_p:
                     total_steps_counter += 1 
 
-        data["Np"] = patterns_with_data
-        data["Ns"] = total_steps_counter   
+        DATA["Np"] = patterns_with_data
+        DATA["Ns"] = total_steps_counter   
 
-        return data 
+        return DATA 
 
     except Exception as e:
         print(f"Error reading from controller: {e}")
         return None
 
 
+def reset_data():
+    """
+    Reset the data between the runs to avoid conflict with previous runs. 
+    """
+    DATA["PID"] = {}
+    DATA["Np"] = 0
+    DATA["Ns"] = 0
+    DATA["Steps"] = np.zeros((TOTAL_PATTERNS, STEPS_PER_PATTERN, 2))
+
+
 def main():
     print(f"Connecting to CN7800 on {PORT}...")
+
+    reset_data()
     results = read_controller_data()
 
     if results:
