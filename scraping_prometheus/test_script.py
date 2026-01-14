@@ -1,12 +1,25 @@
+"""
+This code serves as a quick connection test with the Graphix One controller to check for hardware issues:
+https://www.idealvac.com/files/manuals/Leybold_GRAPHIX_123_Instruction_Manual.pdf?srsltid=AfmBOoqdN6HQTN063OsilJ9S7iyruV-MYv_djclDzcOr8JYWnCZSRBMs
+
+When executed, the test asks for the current pressure value (in Pascals), then parse the response to 
+extract the float value and then prints it. 
+"""
+
 import serial
 import time
 
+# --- Protocol Constants ---
 SI = 0x0F
 EOT = 0x04
 SEPARATOR = ';'
 
 def calculate_crc(data: bytes) -> bytes:
-    """Calculate the ASCII CRC character for the given byte string."""
+    """
+    Calculate the ASCII CRC character for the given byte string.
+    Please refer to the controller manual for the specific CRC formula.
+    Args:
+        data (bytes): Command payload in bytes."""
     total = sum(data) % 256
     crc_value = 255 - total
     if crc_value < 32:
@@ -19,6 +32,11 @@ def get_graphix_parameter(group: int, parameter: int, port: str = 'COM1', baudra
     """
     Read a parameter from the Graphix One controller over RS232.
     Handles non-ASCII bytes in the response.
+    Args:
+        group (int): The parameter group (e.g., 1).
+        parameter (int): The specific parameter index (e.g., 29 for pressure).
+        port (str): Serial port identifier (e.g., 'COM5' or '/dev/ttyUSB0').
+        baudrate (int): Communication speed (defaulted to 9600).
     """
     try:
         with serial.Serial(port, baudrate, timeout=1) as ser:
@@ -49,31 +67,37 @@ def get_graphix_parameter(group: int, parameter: int, port: str = 'COM1', baudra
             
             # Print response as hex for debugging
             print("Received (hex):", response.hex())
-            
-            """
-            # Try decoding printable ASCII part (skip unprintable bytes)
-            printable = ''.join([chr(b) if 32 <= b <= 126 else '.' for b in response])
-            print("Received (interpreted):", printable)
-            """
-            
+                        
             return response
 
     except serial.SerialException as e:
         print(f"Serial error: {e}")
         return None
 
+
 def parse_parameter_value(response: bytes):
-    # Remove ACK and EOT
+    """
+    Cleans the raw byte response and extracts the numerical string.
+    Handles ASCII control characters like ACK (0x06).
+    Args: 
+        response (bytes): The raw byte sequence returned by the Graphix One.
+    """
     body = response
-    if body[0] == 0x06:  # ACK
+    # Strip ASCII Acknowledge (ACK) if the controller prepended it
+    if body[0] == 0x06:  
         body = body[1:]
-    if body[-1] == 0x04:  # EOT
+
+    # Strip EOT if it was embedded in the body rather than the suffix
+    if body[-1] == 0x04:  
         body = body[:-1]
 
-    # Keep only digits, dot, minus, plus, or 'E' (for scientific notation)
+    # Use a list comprehension to filter only characters used in scientific notation
     value_str = ''.join([chr(b) for b in body if chr(b) in '0123456789.-+eE'])
     return value_str
 
+
+# --- Testing part ---
+# This could be integrated in a __main__ 
 response = get_graphix_parameter(1, 29, port='COM5', baudrate=9600)
 value = parse_parameter_value(response)
 print(f"Parameter value: {value}")
