@@ -193,7 +193,7 @@ def serve_prometheus_metrics(s):
             response_headers = [
                 "HTTP/1.1 200 OK",
                 "Content-Type: text/plain; version=0.0.4; charset=utf-8",
-                f"Content-Length: {len(body_content)}",ù
+                f"Content-Length: {len(body_content)}",
                 "Connection: close",
                 "\r\n"
             ]
@@ -291,7 +291,6 @@ def setup_network():
     
     log("ERROR", "Ethernet failed.")
     return False
-
 
 
 if __name__ == "__main__":
