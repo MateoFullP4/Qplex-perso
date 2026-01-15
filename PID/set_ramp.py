@@ -145,6 +145,9 @@ def program_all_paterns():
     """
     Main sequence to configure patterns, links, and steps on the CN7500, then executes the heating program.
     """
+    safe_write(0x1005, 3)    # Set Control Mode to 'Program'
+    instrument.write_bit(int("0x0813",0), 0)   # Disable Auto-tuning bit during setup 
+
     if CLEAR_PATTERNS:
         clear_all_patterns()
 
@@ -160,10 +163,6 @@ def program_all_paterns():
             # Temp registers start at 0x2000; Time registers start at 0x2080
             temp_reg = int("0x2000",0) + p_index*8 + s_index
             time_reg = int("0x2080",0) + p_index*8 + s_index
-            
-            # Optional: Disable Auto-tuning bit during setup if needed
-            if count > 1:
-                instrument.write_bit(int("0x0813",0), 0)
             
             # Note: Temperature is usually stored as (Temp * 10) in the controller
             safe_write(temp_reg, int(round(T * 10)))
@@ -195,9 +194,7 @@ def program_all_paterns():
     # --- Start Execution Sequence ---    
     safe_write(0x1030, 0)    # Set starting pattern to 0
     safe_write(0x1031, 0)    # Set starting step to 0
-    safe_write(0x1005, 3)    # Set Control Mode to 'Program'
     
-    instrument.write_bit(0x0813, 1)   # Turn Auto-Tuning (AT) ON
     instrument.write_bit(0x0814, 1)   # Set Run/Stop to RUN
 
     print(f"Program started: {TOTAL_STEPS} steps programmed successfully.")
