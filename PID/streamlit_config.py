@@ -147,29 +147,30 @@ with col2:
     with tab1:
         st.write("### PID Group Selection")
         
-        # Select the active PID Group (0 to 3)
-        # Register 0x101C: PID parameter selection
-        selected_group = st.radio(
+        # Select the active PID Group (0 to 4)
+        # Options 0-3 are manual presets, 4 is Auto PID
+        selected_group = st.radio( 
             "Select PID Preset Group", 
-            options=[0, 1, 2, 3], 
+            options=[0, 1, 2, 3, 4], 
+            format_func=lambda x: f"Group {x}" if x < 4 else "Group 4 (Auto PID)",
             horizontal=True,
             help="Choose which PID parameter set the controller should use."
         )
 
+        # Boolean to check if the 4th preset (Auto) is selected
+        is_auto_mode = (selected_group == 4)
+
         if st.button("Activate Selected Preset"):
             if safe_write(0x101C, selected_group):
-                st.success(f"Controller is now using PID Group {selected_group}")
+                st.success(f"Controller is now using {'Auto PID' if is_auto_mode else f'PID Group {selected_group}'}")
 
         st.divider()
 
         st.write(f"### Configure PID Values for Group {selected_group}")
         
-        # When reading/writing P, I, D, the register addresses often change based on the group.
-        # However, for most Omega CN models, writing to 1009-100B updates the *currently active* group.
-        
-        if st.button("Fetch Values from PID"):
+        # If in Auto Mode, we grey out the fetch button
+        if st.button("Fetch Values from PID", disabled=is_auto_mode):
             try:
-                # Read current group's values
                 pb = instrument.read_register(0x1009, 1) / 10.0
                 ti = instrument.read_register(0x100A, 0)
                 td = instrument.read_register(0x100B, 0)
@@ -181,19 +182,23 @@ with col2:
             except Exception as e:
                 st.error(f"Read Error: {e}")
 
+        # Disable the inputs if in Auto Mode
         c1, c2, c3 = st.columns(3)
-        new_pb = c1.number_input("Proportional (P)", value=st.session_state.get('pb', 47.0), key="p_input")
-        new_ti = c2.number_input("Integral (I)", value=st.session_state.get('ti', 240), key="i_input")
-        new_td = c3.number_input("Derivative (D)", value=st.session_state.get('td', 60), key="d_input")
+        new_pb = c1.number_input("Proportional (P)", value=st.session_state.get('pb', 47.0), key="p_input", disabled=is_auto_mode)
+        new_ti = c2.number_input("Integral (I)", value=st.session_state.get('ti', 240), key="i_input", disabled=is_auto_mode)
+        new_td = c3.number_input("Derivative (D)", value=st.session_state.get('td', 60), key="d_input", disabled=is_auto_mode)
 
-        if st.button("Save Settings to this Preset"):
-            # First, make sure the controller is pointing to the right group
+        # Disable the save button if in Auto Mode
+        if st.button("Save Settings to this Preset", disabled=is_auto_mode):
             safe_write(0x101C, selected_group)
-            # Then write the values
             safe_write(0x1009, int(new_pb * 10))
             safe_write(0x100A, int(new_ti))
             safe_write(0x100B, int(new_td))
             st.success(f"Parameters saved to Group {selected_group}!")
+        
+        if is_auto_mode:
+            st.info("Manual adjustments are disabled in Auto PID mode.")
+
 
     # --- TAB 2: RAMP PROGRAMMER ---
     with tab2:
