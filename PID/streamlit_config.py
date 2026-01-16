@@ -7,7 +7,6 @@ import time
 # --- Page configuration ---
 st.set_page_config(page_title="Omega CN7800 Controller", layout="wide")
 st.title("Omega CN7800 Control Interface")
- 
 
 # --- Sidebar: Connection Settings ---
 st.sidebar.header("Connection Settings")
@@ -19,6 +18,13 @@ baud = st.sidebar.selectbox("Baudrate", [9600, 19200, 38400], index=0)
 # --- Instrument Initialization ---
 @st.cache_resource
 def get_instrument(port, slave_id, baud):
+    """
+    Check the serial connection and setup the instrument object.
+    Args:
+        port (str): Name of the serial port, format can differ between Windows and Linux
+        slave_id (int): Slave ID of the target device
+        vaud (int): Baudrate of the device, can usually be found in the manual
+    """
     try:
         instr = minimalmodbus.Instrument(port, slave_id)
         instr.serial.baudrate = baud
@@ -36,6 +42,12 @@ instrument = get_instrument(port, slave_id, baud)
 
 # --- Shared Functions ---
 def safe_write(register, value):
+    """
+    Writes a value to a given register with a retry mechanism to handle interference.
+    Args:
+        register (int): Hex address of the register
+        value (int): value to write 
+    """
     try:
         instrument.write_register(register, value)
         return True
@@ -129,7 +141,7 @@ with col1:
 
 
 with col2:
-    tab1, tab2, tab3 = st.tabs(["Parameters Preset", "Ramp Programmer", "PID mode Programmer"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Parameters Preset", "Ramp Programmer", "PID Mode Programmer", "User Documentation"])
 
     # --- TAB 1: PARAMETERS PRESET ---
     with tab1:
@@ -280,20 +292,14 @@ with col2:
         with col_sv2:
             if st.button("Update SV", use_container_width=True):
                 try:
-                    # 1. Force the controller into 'PID Control' mode (Value 0)
-                    # This ensures it looks at the Setpoint register, not the Ramp patterns.
-                    safe_write(0x1005, 0)
 
                     # Omega uses (Temp * 10) for register 0x1001 (Setpoint SV)
                     if safe_write(0x1001, int(new_sv * 10)):
-                        # Automtically start to run the program.
-                        instrument.write_bit(0x0814, 1)
                         st.success(f"Setpoint updated to {new_sv}°C")
                 
                 except Exception as e:
                     st.error(f"Failed to update: {e}")
         
-
         st.divider()
 
         # 2. Autotuning Control
@@ -307,7 +313,7 @@ with col2:
                 if instrument:
                     try:
                         instrument.write_bit(0x0813, 1)
-                        st.warning("Autotuning Started. The 'AT' light should be flashing on the PID.")
+                        st.warning("Autotuning Started.")
                     except Exception as e:
                         st.error(f"Failed to start AT: {e}")
                 else:
@@ -322,3 +328,37 @@ with col2:
                     except Exception as e:
                         st.error(f"Failed to stop AT: {e}")
 
+        # 3. Execution
+        st.markdown("### Execution")
+
+        if st.button("Upload and Run", type="primary", use_container_width=True):
+            try:
+                # Force the controller into 'PID Control' mode (Value 0)
+                safe_write(0x1005, 0)
+
+                # Set the RUN bit (0x0814) to 1
+                instrument.write_bit(0x0814, 1)
+
+                st.success("Controller set to PID Mode and Started!")
+            
+            except Exception as e:
+                st.error(f"Critical Error starting program: {e}")
+
+
+    with tab4:
+        st.header("User Documentation")
+
+        st.subheader("Connection Settings")
+        st.write("The sidebar allows to quickly set up the connection with the PID : \n\n - **Serial Port** : By default COM8. If you have a Linux, this should look like **/dev/tty**. \n\n - **Slave Address** : By default 1, needs to be changed if multiple devices are connected to the same port. \n\n - **Baudrate** : Speed of communication of the device. Can be checked on the manual, usually (9600, 115200).")
+
+        st.subheader("Monitoring and Safety")
+        st.write("The left column shows live data. Please note that the value needs to be manually updated through the **Refresh Live Values** button. \n\n Use the **STOP PROGRAM** button to immediately stop the PID heating in case of emergency.")
+
+        st.subheader("Parameters Preset")
+        st.write("This tab allows to set the PID parameters (P, Ti, Td) for each of the possible preset, ranging from 0~3. For each of the preset, you can read the already assigned value through the **Fetch Values from PID** button, or set new parameters using the **Save Settings to this Preset** button. \n\n The 4th preset allows the PID to automatically choose what preset is the most optimal.")
+
+        st.subheader("Ramp Programmer")
+        st.write("This tab allows the user to set up and run a ramp. The first step is always exactly one degrees above room temperature to avoid PID overshooting. You can plot the ramp before running it to check its coherence, using the **Preview Ramp Curve** button. Using the **Upload and Run** button will automatically set the PID in programming mode and will start running the code. \n\n Please note that only linear ramps are currently implemented.")
+
+        st.subheader("PID Mode Programmer")
+        st.write("Allows to set a target value using PID mode. You can enable or disable AT (Auto-tuning) while the code is running without issue. Please note that pressing the **Upload and Run** button will automatically set the PID in PID mode and start running the code.")
