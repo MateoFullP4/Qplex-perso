@@ -1,3 +1,17 @@
+"""
+This code is designed to set up an ergonomic interface to communicate with a CN7800 Omega PID, 
+using Streamlit. 
+You can find all the documentation concerning the PID at:
+https://assets.omega.com/manuals/M4704.pdf
+
+The precise details of the implemented functionnalities are actually directly accessible in the 
+"User Description" tab once the code is executed. 
+
+To run the code, you only need to run : 
+"streamlit run path/to/file.py" in your powershell and the interface will automatically pop up. 
+"""
+
+
 import streamlit as st
 import minimalmodbus
 import numpy as np
@@ -7,6 +21,16 @@ import time
 # --- Page configuration ---
 st.set_page_config(page_title="Omega CN7800 Controller", layout="wide")
 st.title("Omega CN7800 Control Interface")
+
+
+# --- Initialize PID values in session state to ensure widgets have a value to link to before any hardware communication ---
+if 'p_input' not in st.session_state:
+    st.session_state['p_input'] = 47.0
+if 'i_input' not in st.session_state:
+    st.session_state['i_input'] = 240
+if 'd_input' not in st.session_state:
+    st.session_state['d_input'] = 60
+
 
 # --- Sidebar: Connection Settings ---
 st.sidebar.header("Connection Settings")
@@ -105,19 +129,17 @@ col1, col2 = st.columns([1, 2])
 with col1:
     st.subheader("Monitoring")
     
-    # 1. Add the Refresh Button
     if st.button("Refresh Live Values", use_container_width=True):
-        # In Streamlit, clicking a button automatically reruns the script,
-        # fetching the new values from the hardware below.
+        # In Streamlit, clicking a button automatically reruns the script.
         st.rerun()
 
     if instrument:
         try:
-            # 2. Fetch the data
+            # Fetch the data (Process Value, Set Value)
             pv = instrument.read_register(0x1000, 1)
             sv = instrument.read_register(0x1001, 1)
             
-            # 3. Display with Metrics
+            # Display the data
             st.metric("Current Temp (PV)", f"{pv} °C")
             st.metric("Target Setpoint (SV)", f"{sv} °C")
             
@@ -132,7 +154,7 @@ with col1:
 
     st.divider()
 
-    # 4. Stop Button
+    # Add a Stop Button
     if st.button("STOP PROGRAM", use_container_width=True, type="primary"):
         if instrument:
             instrument.write_bit(0x0814, 0)
@@ -141,9 +163,9 @@ with col1:
 
 
 with col2:
-    tab1, tab2, tab3, tab4 = st.tabs(["Parameters Preset", "Ramp Programmer", "PID Mode Programmer", "User Documentation"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Parameters Preset", "Ramp Programmer", "PID Mode Programmer", "Alarm Setup", "User Documentation"])
 
-    # --- TAB 1: PARAMETERS PRESET ---
+    # --- TAB 1: PID Parameters Preset ---
     with tab1:
         st.write("### PID Group Selection")
         
@@ -171,14 +193,14 @@ with col2:
         # If in Auto Mode, we grey out the fetch button
         if st.button("Fetch Values from PID", disabled=is_auto_mode):
             try:
-                pb = instrument.read_register(0x1009, 1) / 10.0
+                pb = instrument.read_register(0x1009, 1) 
                 ti = instrument.read_register(0x100A, 0)
                 td = instrument.read_register(0x100B, 0)
                 
-                st.session_state['pb'] = pb
-                st.session_state['ti'] = ti
-                st.session_state['td'] = td
-                st.rerun()
+                st.session_state['p_input'] = instrument.read_register(0x1009, 1) 
+                st.session_state['i_input'] = instrument.read_register(0x100A, 0)
+                st.session_state['d_input'] = instrument.read_register(0x100B, 0)
+                st.rerun()  
             except Exception as e:
                 st.error(f"Read Error: {e}")
 
@@ -200,26 +222,22 @@ with col2:
             st.info("Manual adjustments are disabled in Auto PID mode.")
 
 
-    # --- TAB 2: RAMP PROGRAMMER ---
+    # --- TAB 2: Ramp Programmer ---
     with tab2:
         st.subheader("Ramp Configuration")
         
-        # 1. Manual Implementation of Variables
         col_params_1, col_params_2 = st.columns(2)
         
         with col_params_1:
-            # Replaces TOTAL_STEPS
+            # Add buttons to set the parameters of the ramp.
             ui_total_steps = st.slider("Total Number of Steps", 2, 64, 10)
-            # Replaces FINAL_TEMPERATURE
             ui_final_temp = st.number_input("Final Target Temperature (°C)", min_value=0, max_value=800, value=100)
         
         with col_params_2:
-            # Replaces TIME_BETWEEN_STEPS
             ui_time_step = st.number_input("Time per Step (minutes)", min_value=1, value=20)
-            # Replaces TIME_FIRST_STEP
             ui_first_step_time = st.number_input("First Step Duration (to avoid overshoot)", value=1)
 
-        # 2. Visual Preview
+        # Visual Preview of the ramp
         if st.button("Preview Ramp Curve"):
             try:
                 room_temp = instrument.read_register(0x1000, 1)
@@ -232,7 +250,7 @@ with col2:
 
         st.divider()
 
-        # 3. Programming Logic
+        # Ramp implementation
         if st.button("Upload & Run Ramp", type="primary"):
             with st.spinner("Programming PID... This may take a moment."):
                 try:
@@ -284,11 +302,12 @@ with col2:
                 except Exception as e:
                     st.error(f"Failed to program: {e}")
 
-    
+
+    # --- TAB 3: PID Mode Programmer ---
     with tab3:
         st.subheader("PID Mode Programmer")
         
-        # 1. Static Setpoint Control
+        # Static Setpoint Control
         st.markdown("### Target Setpoint")
         col_sv1, col_sv2 = st.columns([3, 1])
         
@@ -307,7 +326,7 @@ with col2:
         
         st.divider()
 
-        # 2. Autotuning Control
+        # Autotuning Control
         st.markdown("### Autotuning (AT)")
         st.info("Autotuning will oscillate the temperature around the setpoint to calculate ideal P, I, and D values.")
         
@@ -333,7 +352,7 @@ with col2:
                     except Exception as e:
                         st.error(f"Failed to stop AT: {e}")
 
-        # 3. Execution
+        # Execution
         st.markdown("### Execution")
 
         if st.button("Upload and Run", type="primary", use_container_width=True):
@@ -348,9 +367,37 @@ with col2:
             
             except Exception as e:
                 st.error(f"Critical Error starting program: {e}")
-
-
+    
+    # --- TAB 4: Alarm Settings ---
     with tab4:
+        st.subheader("Safety Alarm Settings")
+        st.info("Configuration : Alarm is **ON** while Temperature < Upper Limit.")
+
+        col_al1, col_al2 = st.columns(2)
+        with col_al1:
+            alarm_threshold = st.number_input("Alarm Threshold (°C)", min_value=0.0, max_value=800.0, value=50.0)
+        with col_al2:
+            alarm_channel = st.selectbox("Select Alarm Channel", options=[1,2,3], index=0)
+
+        if st.button("Set Safety Alarm"):
+            if instrument:
+                try:
+                    type_reg = 0x1020 + (alarm_channel - 1)
+                    limit_reg = 0x1025 +((alarm_channel - 1) * 2)
+
+                    safe_write(type_reg, 7)
+
+                    safe_write(limit_reg, int(alarm_threshold * 10))
+
+                    st.success(f"Alarm {alarm_channel} configured! It will turn OFF above {alarm_threshold}°C.")
+                
+                except Exception as e:
+                    st.error(f"Failed to set alarm: {e}")
+            else:
+                st.error("Instrument not connected.")
+
+    # --- TAB 5: User Documentation ---
+    with tab5:
         st.header("User Documentation")
 
         st.subheader("Connection Settings")
@@ -367,3 +414,6 @@ with col2:
 
         st.subheader("PID Mode Programmer")
         st.write("Allows to set a target value using PID mode. You can enable or disable AT (Auto-tuning) while the code is running without issue. Please note that pressing the **Upload and Run** button will automatically set the PID in PID mode and start running the code.")
+
+        st.subheader("Safety Alarm Settings")
+        st.write("Allows to setup an alarm.")
