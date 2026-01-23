@@ -16,6 +16,9 @@ import streamlit as st
 import minimalmodbus
 import numpy as np
 import time
+import pandas as pd
+from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 
 
 # --- Page configuration ---
@@ -23,7 +26,10 @@ st.set_page_config(page_title="Omega CN7800 Controller", layout="wide")
 st.title("Omega CN7800 Control Interface")
 
 
-# --- Initialize PID values in session state to ensure widgets have a value to link to before any hardware communication ---
+
+# --- Initialize Session State for Logging ---
+if 'log_data' not in st.session_state:
+    st.session_state['log_data'] = pd.DataFrame(columns=["Timestamp", "PV", "SV"])
 if 'p_input' not in st.session_state:
     st.session_state['p_input'] = 47.0
 if 'i_input' not in st.session_state:
@@ -37,6 +43,15 @@ st.sidebar.header("Connection Settings")
 port = st.sidebar.text_input("Serial Port", value="COM8")
 slave_id = st.sidebar.number_input("Slave ID", value=1)
 baud = st.sidebar.selectbox("Baudrate", [9600, 19200, 38400], index=0)
+
+st.sidebar.divider()
+st.sidebar.header("Data Logger Settings")
+logging_active = st.sidebar.toggle("Enable Live Logging", value=False)
+log_interval = st.sidebar.number_input("Acquisition Interval (sec)", min_value=0.1, max_value=120.0, value=1.0, step=0.1)
+
+if st.sidebar.button("Clear Log History"):
+    st.session_state["log_data"] = pd.DataFrame(columns=["Timestamp", "PV", "SV"])
+    st.rerun()  
 
 
 # --- Instrument Initialization ---
@@ -62,6 +77,11 @@ def get_instrument(port, slave_id, baud):
     
 
 instrument = get_instrument(port, slave_id, baud)
+
+
+# --- Autorefresh Logic ---
+if logging_active:
+    st_autorefresh(interval=log_interval * 1000, key="data_pull")
 
 
 # --- Shared Functions ---
@@ -124,42 +144,62 @@ def clear_all_patterns():
     
 
 # --- UI Layout ---
+st.title("Omega CN7800 Control & Logging Interface")
 col1, col2 = st.columns([1, 2])
+
+
+# --- Hardware Reading ---
+pv, sv = 0.0, 0.0
+if instrument:
+    try:
+        pv_raw = instrument.read_register(0x1000, 0)
+        sv_raw = instrument.read_register(0x1001, 0)
+
+        pv = float(pv_raw) / 10.0
+        sv = float(sv_raw) / 10.0
+        
+        # Display with 1 decimal place
+        st.metric("Current Temp (PV)", f"{pv:.1f} °C")
+        st.metric("Target Setpoint (SV)", f"{sv:.1f} °C")
+        
+        # Append to log if active
+        if logging_active:
+            new_entry = pd.DataFrame({
+                "Timestamp": [datetime.now().strftime("%H:%M:%S")], 
+                "PV": [pv], 
+                "SV": [sv]
+            })
+            st.session_state['log_data'] = pd.concat([st.session_state['log_data'], new_entry], ignore_index=True)
+
+    except Exception as e:
+        st.sidebar.warning(f"Poll Error: {e}")
 
 with col1:
     st.subheader("Monitoring")
+    m1, m2 = st.columns(2)
+    m1.metric("Current PV", f"{pv} °C")
+    m2.metric("Target SV", f"{sv} °C")
+
+    # Live Chart
+    if not st.session_state['log_data'].empty:
+        st.line_chart(st.session_state['log_data'].set_index("Timestamp"))
     
-    if st.button("Refresh Live Values", use_container_width=True):
-        # In Streamlit, clicking a button automatically reruns the script.
-        st.rerun()
+    # Export Options
+    st.write("### Data Export")
+    if not st.session_state['log_data'].empty:
+        csv = st.session_state['log_data'].to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download Log as .txt / .csv",
+            data=csv,
+            file_name=f"PID_Log_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+            mime='text/csv',
+            use_container_width=True
+        )
 
-    if instrument:
-        try:
-            # Fetch the data (Process Value, Set Value)
-            pv = instrument.read_register(0x1000, 1)
-            sv = instrument.read_register(0x1001, 1)
-            
-            # Display the data
-            st.metric("Current Temp (PV)", f"{pv} °C")
-            st.metric("Target Setpoint (SV)", f"{sv} °C")
-            
-            # Show the last update time
-            st.caption(f"Last updated: {time.strftime('%H:%M:%S')}")
-            
-        except Exception as e:
-            st.error(f"Communication Error: {e}")
-            st.warning("Ensure the PID is powered on and the COM port is correct.")
-    else:
-        st.info("Waiting for connection...")
-
-    st.divider()
-
-    # Add a Stop Button
     if st.button("STOP PROGRAM", use_container_width=True, type="primary"):
         if instrument:
             instrument.write_bit(0x0814, 0)
             st.warning("Heater Output Forced to STOP.")
-            st.rerun()
 
 
 with col2:

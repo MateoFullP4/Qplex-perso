@@ -140,7 +140,6 @@ def clear_all_patterns():
 
     print("All patterns cleared.")
 
-
 def program_all_paterns():
     """
     Main sequence to configure patterns, links, and steps on the CN7500, then executes the heating program.
