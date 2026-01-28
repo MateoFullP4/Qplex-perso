@@ -341,6 +341,74 @@ with col2:
                 
                 except Exception as e:
                     st.error(f"Failed to program: {e}")
+        
+        st.divider()
+        st.subheader("Extend Existing Ramp")
+        st.info("This will add a single step to the end of the current sequence without clearing existing data.")
+
+        col_sub1, col_sub2 = st.columns(2)
+        with col_sub1:
+            ui_sub_temp = st.number_input("Subsequent Target Temp (°C)", min_value=0, max_value=800, value=150)
+        with col_sub2:
+            ui_sub_time = st.number_input("Subsequent Duration (min)", min_value=1, value=20)
+
+        if st.button("Add Step to Program"):
+            if instrument:
+                try:
+                    # 1. Find the current status of the 8 patterns (0x1040 to 0x1047)
+                    # These registers store (number of steps - 1). 
+                    # If a pattern is unused, your clear_all_patterns sets it to 0.
+                    # We need to find the first pattern that isn't 'full' (8 steps).
+                    
+                    found_slot = False
+                    for p_idx in range(8):
+                        # Read how many steps are currently in this pattern
+                        # Note: Register 0x1040 + p_idx
+                        current_steps_reg = 0x1040 + p_idx
+                        num_steps_minus_one = instrument.read_register(current_steps_reg, 0)
+                        
+                        # Logic: If the 'link' (0x1060) is 0x08 (End), this is our active/last pattern
+                        link_status = instrument.read_register(0x1060 + p_idx, 0)
+                        
+                        if link_status == 0x08: 
+                            # We found the end. Check if this pattern has room (max 8 steps, so index 7)
+                            # If num_steps_minus_one is 7, this pattern is full.
+                            if num_steps_minus_one < 7:
+                                target_p = p_idx
+                                target_s = num_steps_minus_one + 1
+                                new_step_count = target_s
+                            else:
+                                # This pattern is full, move to the next pattern if available
+                                if p_idx < 7:
+                                    target_p = p_idx + 1
+                                    target_s = 0
+                                    new_step_count = 0
+                                    # Link the previous pattern to this new one
+                                    safe_write(0x1060 + p_idx, target_p)
+                                else:
+                                    st.error("Memory Full: 64 steps reached.")
+                                    break
+                            
+                            # 2. Write the new step data
+                            temp_reg = 0x2000 + target_p * 8 + target_s
+                            time_reg = 0x2080 + target_p * 8 + target_s
+                            
+                            safe_write(temp_reg, int(ui_sub_temp * 10))
+                            safe_write(time_reg, int(ui_sub_time))
+                            
+                            # 3. Update metadata (Number of steps and ensure link is 'End')
+                            safe_write(0x1040 + target_p, new_step_count)
+                            safe_write(0x1060 + target_p, 0x08)
+                            
+                            st.success(f"Step added to Pattern {target_p}, Slot {target_s}!")
+                            found_slot = True
+                            break
+                    
+                    if not found_slot:
+                        st.error("Could not determine current program end. Try a fresh 'Upload & Run' first.")
+
+                except Exception as e:
+                    st.error(f"Error extending ramp: {e}")
 
 
     # --- TAB 3: PID Mode Programmer ---
