@@ -158,47 +158,49 @@ def setup_metrics():
 
 
 def serve_prometheus_metrics(s):
-    """
-    HTTP server handler.
-    Checks for pending connection, serves metric text and closes.
-    """
-
     global scraper_status
     try:
-        # Accept a connexion if one is waiting in queue.
         conn, addr = s.accept()
-
     except OSError as e:
-        # Error 11 (EAGAIN) is expected when no client is connecting
-        if e.args[0] in (11, 110): 
+        if e.args[0] in (11, 110, 115): # Ajout de 115 (EINPROGRESS)
             return
         raise e
     
     try:
-        conn.settimeout(0.5) # Prevent hanging on slow clients
+        conn.settimeout(1.0) # Un peu plus de marge
         request = conn.recv(1024)
+        
+        # Log pour debug : voir ce que le serveur reçoit vraiment
+        # print("Request reçue:", request)
 
-        if request and b'GET /metrics' in request:
-            # Build the HTTP response body
+        if request and b'GET' in request: # Plus permissif pour le test
+            # Construction du corps
             metrics_body = []
             for name, metric in METRICS.items():
                 metrics_body.append(str(metric))
-
-            # Add internal status metric
+            
             metrics_body.append(f"graphix_scraper_status{{status=\"{scraper_status}\"}} 1")
-
             body_content = '\n'.join(metrics_body) + '\n'
 
-            # HTTP header construction
-            response_headers = [
-                "HTTP/1.1 200 OK",
-                "Content-Type: text/plain; version=0.0.4; charset=utf-8",
-                f"Content-Length: {len(body_content)}",
-                "Connection: close",
+            # Header HTTP
+            response_headers = (
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
+                f"Content-Length: {len(body_content)}\r\n"
+                "Connection: close\r\n"
                 "\r\n"
-            ]
-            response = '\r\n'.join(response_headers).encode('utf-8') + body_content.encode('utf-8')
-            conn.sendall(response)
+            )
+            
+            # Envoi global
+            conn.sendall(response_headers.encode('utf-8'))
+            conn.sendall(body_content.encode('utf-8'))
+            
+            # Laisser un très court instant pour que le buffer se vide
+            utime.sleep_ms(10) 
+        else:
+            # Si on reçoit une requête vide ou inconnue, on répond quand même 404
+            # pour éviter le "Empty reply"
+            conn.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
 
     except Exception as e:
         log("ERROR", f"Web server error: {e}")

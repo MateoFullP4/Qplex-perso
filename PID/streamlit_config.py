@@ -111,33 +111,107 @@ def chunk(lst, n):
         yield lst[i:i+n] 
 
 
+
+
+def find_program_end(instrument):
+    """
+    Returns (pattern_index, step_index) where the next step should be written.
+    Raises RuntimeError if memory is full or no program exists.
+    """
+    last_used_pattern = None
+
+    # Find the last pattern that actually contains steps
+    for p_idx in range(8):
+        steps_minus_one = instrument.read_register(0x1040 + p_idx, 0)
+        if steps_minus_one >= 0:
+            if steps_minus_one > 0 or p_idx == 0:
+                if steps_minus_one > 0:
+                    last_used_pattern = p_idx
+
+    if last_used_pattern is None:
+        raise RuntimeError("No existing program found. Upload a ramp first.")
+
+    steps_minus_one = instrument.read_register(0x1040 + last_used_pattern, 0)
+
+    # If there is room in the current pattern
+    if steps_minus_one < 7:
+        return last_used_pattern, steps_minus_one + 1
+
+    # Otherwise, move to the next pattern
+    if last_used_pattern >= 7:
+        raise RuntimeError("Memory full: 64 steps reached.")
+
+    # Link previous pattern to next
+    safe_write(0x1060 + last_used_pattern, last_used_pattern + 1)
+
+    return last_used_pattern + 1, 0
+
+
+def resume_from_step(pattern_idx, step_idx):
+    """
+    Resume execution starting from a specific pattern/step.
+    Used only when PID is not running.
+    """
+    safe_write(0x1030, pattern_idx)  # Start Pattern
+    safe_write(0x1031, step_idx)     # Start Step
+    instrument.write_bit(0x0814, 1)  # RUN
+
+
+
+def is_program_actively_running():
+    """
+    Returns True if the PID program is actively executing steps.
+    Returns False if the program has ended (PTsP / maintain).
+    """
+
+    current_pattern = instrument.read_register(0x1030, 0)
+    current_step = instrument.read_register(0x1031, 0)
+
+    # Find last programmed pattern
+    last_pattern = None
+    for p in range(8):
+        steps = instrument.read_register(0x1040 + p, 0)
+        if steps > 0 or p == 0:
+            if steps > 0:
+                last_pattern = p
+
+    if last_pattern is None:
+        return False
+
+    last_step = instrument.read_register(0x1040 + last_pattern, 0)
+
+    # If execution pointer is beyond program end → PTsP
+    if current_pattern > last_pattern:
+        return False
+    if current_pattern == last_pattern and current_step > last_step:
+        return False
+
+    return True
+
+
+
 def clear_all_patterns():
     """
-    Reset all existing patterns and steps to zero to avoid overlapping with
-    previous runs.
+    Fully reset program memory AND execution state
     """
     print("Clearing patterns in existence")
+
+    # STOP execution and reset pointers
+    instrument.write_bit(0x0814, 0)  # STOP
+    safe_write(0x1030, 0)            # Pattern pointer
+    safe_write(0x1031, 0)            # Step pointer
 
     TOTAL_PATTERNS = 8
     STEPS_PER_PATTERN = 8
 
     for p in range(TOTAL_PATTERNS):
         for s in range(STEPS_PER_PATTERN):
-            temp_reg = int("0x2000", 0) + p * 8 + s
-            time_reg = int("0x2080", 0) + p * 8 + s
+            safe_write(0x2000 + p * 8 + s, 0)  # Temp
+            safe_write(0x2080 + p * 8 + s, 0)  # Time
 
-            # Set temperature and time to zero
-            safe_write(temp_reg, 0)
-            safe_write(time_reg, 0)
-
-        # Set number of steps to 0
-        safe_write(0x1040 + p, 0)
-
-        # Set cycle count to 0
-        safe_write(0x1050 + p, 0)
-
-        # Set pattern link to "End of Program"
-        safe_write(0x1060 + p, 0x08)
+        safe_write(0x1040 + p, 0)   # Steps
+        safe_write(0x1050 + p, 0)   # Cycles
+        safe_write(0x1060 + p, 0x08)  # End of program
 
     print("All patterns cleared.")
 
@@ -355,60 +429,40 @@ with col2:
         if st.button("Add Step to Program"):
             if instrument:
                 try:
-                    # 1. Find the current status of the 8 patterns (0x1040 to 0x1047)
-                    # These registers store (number of steps - 1). 
-                    # If a pattern is unused, your clear_all_patterns sets it to 0.
-                    # We need to find the first pattern that isn't 'full' (8 steps).
-                    
-                    found_slot = False
-                    for p_idx in range(8):
-                        # Read how many steps are currently in this pattern
-                        # Note: Register 0x1040 + p_idx
-                        current_steps_reg = 0x1040 + p_idx
-                        num_steps_minus_one = instrument.read_register(current_steps_reg, 0)
-                        
-                        # Logic: If the 'link' (0x1060) is 0x08 (End), this is our active/last pattern
-                        link_status = instrument.read_register(0x1060 + p_idx, 0)
-                        
-                        if link_status == 0x08: 
-                            # We found the end. Check if this pattern has room (max 8 steps, so index 7)
-                            # If num_steps_minus_one is 7, this pattern is full.
-                            if num_steps_minus_one < 7:
-                                target_p = p_idx
-                                target_s = num_steps_minus_one + 1
-                                new_step_count = target_s
-                            else:
-                                # This pattern is full, move to the next pattern if available
-                                if p_idx < 7:
-                                    target_p = p_idx + 1
-                                    target_s = 0
-                                    new_step_count = 0
-                                    # Link the previous pattern to this new one
-                                    safe_write(0x1060 + p_idx, target_p)
-                                else:
-                                    st.error("Memory Full: 64 steps reached.")
-                                    break
-                            
-                            # 2. Write the new step data
-                            temp_reg = 0x2000 + target_p * 8 + target_s
-                            time_reg = 0x2080 + target_p * 8 + target_s
-                            
-                            safe_write(temp_reg, int(ui_sub_temp * 10))
-                            safe_write(time_reg, int(ui_sub_time))
-                            
-                            # 3. Update metadata (Number of steps and ensure link is 'End')
-                            safe_write(0x1040 + target_p, new_step_count)
-                            safe_write(0x1060 + target_p, 0x08)
-                            
-                            st.success(f"Step added to Pattern {target_p}, Slot {target_s}!")
-                            found_slot = True
-                            break
-                    
-                    if not found_slot:
-                        st.error("Could not determine current program end. Try a fresh 'Upload & Run' first.")
+                    # 1. Detect whether program is actively running
+                    program_running = is_program_actively_running()
+
+                    # 2. Append new step
+                    target_p, target_s = find_program_end(instrument)
+
+                    temp_reg = 0x2000 + target_p * 8 + target_s
+                    time_reg = 0x2080 + target_p * 8 + target_s
+
+                    safe_write(temp_reg, int(ui_sub_temp * 10))
+                    safe_write(time_reg, int(ui_sub_time))
+
+                    safe_write(0x1040 + target_p, target_s)
+                    safe_write(0x1060 + target_p, 0x08)
+
+                    # 3. Resume ONLY if program had ended (PTsP)
+                    if not program_running:
+                        instrument.write_bit(0x0814, 0)   # STOP (required)
+                        safe_write(0x1030, target_p)
+                        safe_write(0x1031, target_s)
+                        instrument.write_bit(0x0814, 1)   # RUN
+
+                        st.success(
+                            f"Step added → resumed from Pattern {target_p}, Step {target_s}"
+                        )
+                    else:
+                        st.success(
+                            f"Step added → program already running"
+                        )
 
                 except Exception as e:
                     st.error(f"Error extending ramp: {e}")
+
+
 
 
     # --- TAB 3: PID Mode Programmer ---
