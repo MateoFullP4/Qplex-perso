@@ -156,102 +156,102 @@ def setup_metrics():
     )
     METRICS["pressure"] = pressure
 
-
 def serve_prometheus_metrics(s):
+    """
+    Version optimisée pour les réseaux locaux avec latence.
+    """
     global scraper_status
+    conn = None
     try:
+        # Augmenter le timeout d'acceptation pour être plus réactif
+        s.settimeout(0.1) 
         conn, addr = s.accept()
-    except OSError as e:
-        if e.args[0] in (11, 110, 115): # Ajout de 115 (EINPROGRESS)
-            return
-        raise e
-    
-    try:
-        conn.settimeout(1.0) # Un peu plus de marge
-        request = conn.recv(1024)
-        
-        # Log pour debug : voir ce que le serveur reçoit vraiment
-        # print("Request reçue:", request)
+    except OSError:
+        return 
 
-        if request and b'GET' in request: # Plus permissif pour le test
-            # Construction du corps
+    try:
+        # CRITIQUE : Laisser le temps aux données du switch/routeur d'arriver
+        utime.sleep_ms(50) 
+        
+        conn.settimeout(2.0)
+        request = conn.recv(1024)
+
+        # On répond à n'importe quel GET pour éviter le "Empty reply"
+        if request and b'GET' in request:
             metrics_body = []
             for name, metric in METRICS.items():
                 metrics_body.append(str(metric))
-            
+
             metrics_body.append(f"graphix_scraper_status{{status=\"{scraper_status}\"}} 1")
             body_content = '\n'.join(metrics_body) + '\n'
 
-            # Header HTTP
+            # Header HTTP ultra-standard
             response_headers = (
                 "HTTP/1.1 200 OK\r\n"
                 "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
-                f"Content-Length: {len(body_content)}\r\n"
+                "Content-Length: {}\r\n"
                 "Connection: close\r\n"
                 "\r\n"
-            )
-            
-            # Envoi global
+            ).format(len(body_content))
+
+            # Envoi en deux temps
             conn.sendall(response_headers.encode('utf-8'))
             conn.sendall(body_content.encode('utf-8'))
             
-            # Laisser un très court instant pour que le buffer se vide
-            utime.sleep_ms(10) 
+            # CRITIQUE : Attendre que la puce W5500 pousse physiquement les bits sur le fil
+            utime.sleep_ms(200) 
         else:
-            # Si on reçoit une requête vide ou inconnue, on répond quand même 404
-            # pour éviter le "Empty reply"
-            conn.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
+            # Si requête vide ou bizarre, on envoie une erreur propre au lieu de couper
+            conn.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
 
     except Exception as e:
-        log("ERROR", f"Web server error: {e}")
+        # On ne peut pas voir le log, mais on empêche le crash
+        pass
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 
 def main_loop(uart):
-    """
-    The loop that is being executed automatically when the W5500-EVB-pico is plugged.
-    Manages timing for scraping and web serving. 
-    """
     global scraper_status
 
     interval = GLOBAL_CONFIG["scrap_interval"]
     port = GLOBAL_CONFIG["http_server_port"]
-    addr = socket.getaddrinfo("0.0.0.0", port)[0]
+    
+    # Écoute sur toutes les interfaces
+    addr = socket.getaddrinfo("0.0.0.0", port)[0][-1]
 
-    # Initialize TCP Socket. 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(addr[-1])
-    s.listen(1)
+    s.bind(addr)
+    s.listen(5) # Augmenté à 5 pour le réseau du labo
     s.setblocking(False)
 
-    log("INFO", f"Prometheus HTTP server listening on port {port}")
     last_scrape_time = utime.time() - interval 
 
     while True:
-        gc.collect() # Periodically clean memory
+        gc.collect()
         current_time = utime.time()
 
-        # Data scraping logic in Serial        
+        # Lecture UART : On ne le fait QUE si l'intervalle est dépassé
         if current_time - last_scrape_time >= interval:
             last_scrape_time = current_time
-            log("DEBUG", "Measuring and updating pressure...")
+            
+            # On réduit un peu le risque de blocage pendant le scrap
+            try:
+                response = get_graphix_parameter(1, 29, uart) 
+                value = parse_parameter_value(response)
+                if value is not None:
+                    METRICS["pressure"].set(value)
+                    scraper_status = "running"
+                else:
+                    scraper_status = "error"
+            except:
+                scraper_status = "uart_fail"
 
-            # Request group 1, parameter 29 (pressure value)
-            response = get_graphix_parameter(1, 29, uart) 
-            value = parse_parameter_value(response)
-
-            if value is not None:
-                METRICS["pressure"].set(value)
-                scraper_status = "running"
-                log("INFO", f"Pressure: {value}")
-            else:
-                scraper_status = "error"
-
-        # Network Serving Logic (HTTP)
+        # On appelle le serveur le plus souvent possible
         serve_prometheus_metrics(s)
-        utime.sleep_ms(50) 
+        utime.sleep_ms(10) # Petite pause pour laisser le CPU respirer
 
 
 
