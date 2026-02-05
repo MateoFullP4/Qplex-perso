@@ -65,9 +65,11 @@ Press `Ctrl+]` to exit REPL.
 
 ### Adding a File on the Board
 ```bash
-ampy -p COMx put path-to-your-file.py name_of_file.py
+ampy -p COMx put path-to-file.py name_of_file.py
 ```
-
+- `path_to_file.py`: Path on your computer
+- `name_of_file.py`: Name to save on the board
+**Important**: Your main program **must be named** `main.py` on the board. MicroPython automatically executes `main.py` on boot. 
 
 
 
