@@ -1,14 +1,27 @@
 """
-This file only serves as an easier and more readable way to code main.py
-All the parameters needed are written here for a more modular code. 
+This file centralizes all configuration parameters used by main.py.
+
+It is intended to improve readability and maintainability by separating
+hardware, network, and application settings from the program logic.
+
+The configuration includes:
+- Global application settings (scrape interval, HTTP port, metric labels)
+- UART parameters for communication with the Graphix controller
+- SPI and Ethernet parameters for the W5500 network interface
+- Protocol constants used by the Graphix RS232 communication
+
+Modifying this file allows the behavior of the application to be adjusted
+without changing the main program code.
 """
+
 
 GLOBAL_CONFIG = {
     "http_server_port": 8080, # Port to the Prometheus server
     "scrap_interval": 5,     
     "tags": {             
-        "location": "lab_a",
-        "gauge_id": "graphix001"
+        "location": "Turbo pump",
+        "gauge_id": "graphix001", 
+        "device": "IONIVAC ITR 90"
     }
 }
 

@@ -1,74 +1,132 @@
 """ 
-This code is designed to be implemented on a W5500-EVB-pico under Windows. 
-The modules used are specific to micro-python and the .uf2 folder used can be found at :
+This program is intended to run on a W5500-EVB-Pico board under Windows,
+using MicroPython.
+
+The required MicroPython firmware (.uf2) can be found at:
 https://micropython.org/download/RPI_PICO/
-The version used is v1.26.1 (2025-09-11)
+Tested with MicroPython v1.26.1 (2025-09-11).
 
-This program runs with the help of a config.py that is installed on the W5500-EVB-pico, 
-in which all the variables of the configuration are specified. 
+The program relies on a separate config.py file stored on the board,
+which contains all hardware, network, and application configuration values.
 
-For more details about the wiring or the CRC calculation, please refer to Graphix One controller Manual : 
-https://www.idealvac.com/files/manuals/Leybold_GRAPHIX_123_Instruction_Manual.pdf?srsltid=AfmBOopd9Enj3GeLaJVnPIEAdfaF3iB9zg6F_SY2v9AX0OK8wkuFWzkj
+For wiring details and CRC calculation rules, refer to the
+Graphix One controller manual:
+https://www.idealvac.com/files/manuals/Leybold_GRAPHIX_123_Instruction_Manual.pdf
 
-This code allows a W5500-EVB-Pico to read the data from a Graphix One controller and to setup a local 
-server through Ethernet, using Prometheus. 
-Please note that this only handles Ethernet connection and the function setup_network() needs to be changed
-if you want to change the type of connection. 
+This code allows the W5500-EVB-Pico to:
+- Read pressure data from a Graphix One controller over RS232 (UART)
+- Expose the measurements through an Ethernet-based HTTP server
+- Serve the data in Prometheus text exposition format
+
+Note:
+This implementation supports Ethernet only. If another network interface
+is required, the setup_network() function must be modified accordingly.
 """
 
 import utime
 import usocket as socket
 import machine
 import gc
+import re
 import sys
 
+
 # --- Configuration & Constants ---
-# Import the variables of the configuration from config.py
+# Import all user-defined configuration parameters
 from config import (
     GLOBAL_CONFIG, GRAPHIX_CONFIG, NETWORK_CONFIG,
     SI, EOT, SEPARATOR, VERSION, NAME)
 
-# --- Global System States ---
-# Global states for tracking pressure and system status
+
+# --- Global Runtime State ---
 pressure_value = None
 scraper_status = "starting"
 METRICS = {}
 
 
+# --- Classes ---
 class uGauge:
     """
-    A lightweight class to mimic Prometheus gauge behavior. 
-    Formats data into the standard Prometheus text exposition format.
-    """
+    Minimal Prometheus-like Gauge implementation.
 
+    This class stores a numeric value and formats it according to
+    Prometheus text exposition standards.
+    """
     def __init__(self, name, documentation, unit, tags):
+        """
+        Initializes a gauge metric.
+
+        Args:
+            - name (str): Metric name exposed to Prometheus.
+            - documentation (str): Human-readable metric description.
+            - unit (str): Measurement unit (informational).
+            - tags (dict): Dictionary of label key/value pairs.
+
+        Returns:
+            - None
+        """
         self.name = name
         self.documentation = documentation
         self.unit = unit
         self.labels = self._format_labels(tags)
-        self.value = 0
+        self.value = None
+
 
     def _format_labels(self, tags):
-        # Converts a dictionary of tags into a Prometheus label string. 
+        """
+        Converts a dictionary of labels into a Prometheus-compatible string.
+        Example: { "location": "lab", "id": "001" } --> location="lab",id="001"
+
+        Args:
+            - tags (dict): Label key/value pairs.
+
+        Returns:
+            - str: Formatted label string
+        """
         return ','.join(['{k}="{v}"'.format(k=k, v=v) for k, v in tags.items()])
+    
 
     def set(self, value):
-        # Updates the current gauge value. 
+        """
+        Updates the stored gauge value.
+        Args:
+            - value (float): New value to store.
+
+        Returns:
+            - None
+        """
         self.value = value
+
         
     def __str__(self):
-        # Returns the full Prometheus formatted string for this metric.
-        output = [
-            "# HELP {} {}".format(self.name, self.documentation),
-            "# TYPE {} gauge".format(self.name),
-            "{}{{{}}} {}".format(self.name, self.labels, self.value)
-        ]
-        return '\n'.join(output)
+        """
+        Formats the gauge as Prometheus exposition text.
+
+        Returns:
+            - str: Formatted metric string, or empty string if no value is set.
+        """
+        if self.value is None:
+            return ""
+        
+        return (
+            f"# HELP {self.name} {self.documentation}\n"
+            f"# TYPE {self.name} gauge\n"
+            f"{self.name}{{{self.labels}}} {self.value}"
+        )
 
 
+
+# --- Utility Functions ---
 def log(level, message):
-    """ 
-    Standardized logger with timestamps: [HH:MM:SS] - LEVEL - Message.
+    """
+    Prints a timestamped log message.
+
+    Args:
+        - level (str): Log severity level (INFO, ERROR, SUCCESS, etc.).
+        - message (str): Message to display.
+
+    Returns:
+        - None
     """
     time_tuple = utime.localtime() 
 
@@ -77,9 +135,16 @@ def log(level, message):
     print("[{}] - {} - {}".format(timestamp, level, message))
 
 
+
 def calculate_crc(data: bytes) -> bytes:
     """
-    Calculates the CRC for the Graphix bytes protocol over RS232. 
+    Computes the CRC checksum required by the Graphix RS232 protocol.
+
+    Args:
+        - data (bytes): Payload bytes excluding CRC and EOT.
+
+    Returns:
+        - bytes: Single-byte CRC value.
     """
     total = sum(data) % 256
     crc_value = 255 - total
@@ -88,10 +153,18 @@ def calculate_crc(data: bytes) -> bytes:
     return bytes([crc_value])
 
 
+
 def get_graphix_parameter(group: int, parameter: int, uart: machine.UART):
     """
-    Requests a specific parameter/value to the controller. 
-    The list of parameters and their respective addresses can be found in the manual. 
+    Sends a parameter read request to the Graphix controller via UART.
+
+    Args:
+        - group (int): Parameter group identifier.
+        - parameter (int): Parameter address within the group.
+        - uart (machine.UART): Initialized UART interface.
+
+    Returns:
+        - bytes | None: Raw response bytes, or None if no response was received.
     """
     # Construct command string 
     command_str = f"{group}{SEPARATOR}{parameter}{SEPARATOR}"
@@ -104,6 +177,7 @@ def get_graphix_parameter(group: int, parameter: int, uart: machine.UART):
     print(f"DEBUG UART - Sending: {message}")
 
     # Transmit and wait for the controller answer
+    uart.read()
     uart.write(message)
     utime.sleep_ms(300) 
 
@@ -119,32 +193,57 @@ def get_graphix_parameter(group: int, parameter: int, uart: machine.UART):
 
 def parse_parameter_value(response: bytes):
     """
-    Extracts numerical value from the raw Graphix responses.
-    Handles 'ACK' (0x06) prefix and strips the CRT/EoT suffixes.
+    Parses a numeric value from the controller response.
+
+    Args:
+        - response (bytes): Raw UART response from the controller.
+
+    Returns:
+        - float | None: Parsed pressure value (mbar), or None if invalid.
     """
-    # Every valid response is of len >= 3 (Start byte, Data, End byte)
-    if not response or len(response)<3:
+
+    # Basic sanity check: response must exist and be long enough
+    if not response or len(response) < 5:
         return None
 
     try:
-        # Decodes bytes to string, removing protocol characters
-        clean_str = response[1:-2].decode('ascii').strip()
+        # Decode bytes to ASCII and immediately strip control characters
+        # commonly used by the controller protocol (ACK, SI, EOT, etc.)
+        raw = response.decode("ascii", "ignore")
+        clean_raw = raw.replace(chr(6), "").replace(chr(15), "").replace(chr(4), "")
 
-        #Filter only numeric characters (can include scientific notation)
-        numeric_part = "".join([c for c in clean_str if c.isdigit() or c in '.-E+'])
+        # Use a regular expression to extract a floating-point number
+        match = re.search(r"([-+]?\d+\.\d+[eE][-+]?\d+)", clean_raw)
 
-        if numeric_part:
-            return float(numeric_part)
+         # If no valid number is found, the response is considered invalid
+        if not match:
+            return None
+        
+         # Convert the extracted string to a float
+        val = float(match.group(1))
+        
+        # Safety check:
+        # On this type of controller, an exact or negative zero reading is often caused by communication noise
+        # or parsing artifacts, not by a real physical measurement
+        if val <= 0:
+            return None
+            
+        return val
+    
+    except:
         return None
-                
-    except Exception as e:
-        log("ERROR", "Parsing failed: {} | Raw: {}".format(e, response))
-        return None
+
 
 
 def setup_metrics():
     """
-    Initializes global metric objects based on configuration. 
+    Initializes all Prometheus metric objects.
+
+    Args:
+        - None
+
+    Returns:
+        - None
     """
     global METRICS
     tags = GLOBAL_CONFIG["tags"]
@@ -156,27 +255,34 @@ def setup_metrics():
     )
     METRICS["pressure"] = pressure
 
+
+
 def serve_prometheus_metrics(s):
     """
-    Version optimisée pour les réseaux locaux avec latence.
+    Accepts HTTP connections and serves Prometheus metrics.
+
+    Args:
+        - s (socket.socket): Listening TCP socket.
+
+    Returns:
+        - None
     """
     global scraper_status
     conn = None
     try:
-        # Augmenter le timeout d'acceptation pour être plus réactif
         s.settimeout(0.1) 
         conn, addr = s.accept()
     except OSError:
         return 
 
     try:
-        # CRITIQUE : Laisser le temps aux données du switch/routeur d'arriver
+        # Let time for the switch data to arrive.
         utime.sleep_ms(50) 
         
         conn.settimeout(2.0)
         request = conn.recv(1024)
 
-        # On répond à n'importe quel GET pour éviter le "Empty reply"
+        # Answering every 'GET' requests to avoid "Empty reply"
         if request and b'GET' in request:
             metrics_body = []
             for name, metric in METRICS.items():
@@ -185,7 +291,7 @@ def serve_prometheus_metrics(s):
             metrics_body.append(f"graphix_scraper_status{{status=\"{scraper_status}\"}} 1")
             body_content = '\n'.join(metrics_body) + '\n'
 
-            # Header HTTP ultra-standard
+            # HTTP Header
             response_headers = (
                 "HTTP/1.1 200 OK\r\n"
                 "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
@@ -194,70 +300,92 @@ def serve_prometheus_metrics(s):
                 "\r\n"
             ).format(len(body_content))
 
-            # Envoi en deux temps
             conn.sendall(response_headers.encode('utf-8'))
             conn.sendall(body_content.encode('utf-8'))
             
-            # CRITIQUE : Attendre que la puce W5500 pousse physiquement les bits sur le fil
+            # Wait for the W5500 physical delay
             utime.sleep_ms(200) 
+
         else:
-            # Si requête vide ou bizarre, on envoie une erreur propre au lieu de couper
+            # If the request is empty, send an error message instead of cutting connexion
             conn.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
 
     except Exception as e:
-        # On ne peut pas voir le log, mais on empêche le crash
         pass
+
     finally:
         if conn:
             conn.close()
 
 
 def main_loop(uart):
+    """
+    Main runtime loop:
+    - Periodically polls the Graphix controller
+    - Updates metrics
+    - Serves HTTP requests
+
+    Args:
+        - uart (machine.UART): Initialized UART interface.
+
+    Returns:
+        - None
+    """
     global scraper_status
 
     interval = GLOBAL_CONFIG["scrap_interval"]
     port = GLOBAL_CONFIG["http_server_port"]
     
-    # Écoute sur toutes les interfaces
+    # Listen on all available network interfaces
     addr = socket.getaddrinfo("0.0.0.0", port)[0][-1]
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(addr)
-    s.listen(5) # Augmenté à 5 pour le réseau du labo
+    s.listen(5) # Increased backlog to handle lab network traffic
     s.setblocking(False)
 
+    # Initialize last scrape time so the first read happens immediately
     last_scrape_time = utime.time() - interval 
 
     while True:
         gc.collect()
         current_time = utime.time()
 
-        # Lecture UART : On ne le fait QUE si l'intervalle est dépassé
+        # UART polling: performed ONLY when the configured interval has elapsed
         if current_time - last_scrape_time >= interval:
             last_scrape_time = current_time
-            
-            # On réduit un peu le risque de blocage pendant le scrap
             try:
                 response = get_graphix_parameter(1, 29, uart) 
-                value = parse_parameter_value(response)
-                if value is not None:
-                    METRICS["pressure"].set(value)
+                new_value = parse_parameter_value(response)
+
+                if new_value is not None:
+                    METRICS["pressure"].set(new_value)
                     scraper_status = "running"
                 else:
-                    scraper_status = "error"
-            except:
+                    # No update is performed here, so METRICS["pressure"]
+                    # keeps its previous value (e.g. 7.87e-06)
+                    scraper_status = "parse_fail" 
+            except Exception as e:
                 scraper_status = "uart_fail"
 
-        # On appelle le serveur le plus souvent possible
+        # Serve the HTTP metrics endpoint as frequently as possible
         serve_prometheus_metrics(s)
-        utime.sleep_ms(10) # Petite pause pour laisser le CPU respirer
+
+        # Short sleep to avoid maxing out the CPU
+        utime.sleep_ms(10) 
 
 
 
 def setup_network():
     """
-    Configures the W5500 via SPI and waits for a physical link.
+    Initializes the W5500 Ethernet interface and waits for link establishment.
+
+    Args:
+        - None
+
+    Returns:
+        - str | bool: Assigned IP address on success, False on failure.
     """
     import network
     from machine import Pin, SPI 
