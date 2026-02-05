@@ -54,5 +54,11 @@ Open a terminal and check the REPL:
 ```bash
 mpremote connect auto repl
 ```
+You should see : 
+```bash
+>>>
+```
+
+
 
 
