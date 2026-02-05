@@ -18,14 +18,16 @@ This guide explains how to flash MicroPython and deploy the project files onto a
   https://micropython.org/download/RPI_PICO/
   Use version v1.26.1 (2025-09-11)
 
-- **mpremote** tool (official MicroPython tool)
+- **mpremote**  is a tool that provides an integrated set of utilities to remotely interact with, manage the filesystem on, and automate a MicroPython device.
 
 Install `mpremote`:
 ```bash
 pip install mpremote
+```
 
-- **ampy** tool (official MicroPython tool)
+- **ampy** is a tool to control MicroPython boards over a serial connection.
 
 Install `ampy`:
 ```bash
-pip install mpremote
+pip install adafruit-ampy
+```
