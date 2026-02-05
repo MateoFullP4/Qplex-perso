@@ -19,11 +19,13 @@ This code currently returns a dictionnary with :
 import minimalmodbus
 import numpy as np
 
+
 # --- Configuration Constants ---
 PORT = 'COM8'           # Serial port identifier
 SLAVE_ADDRESS = 1       # Modbus slave ID
 TOTAL_PATTERNS = 8      # Hardware capacity of CN7800
 STEPS_PER_PATTERN = 8   # Hardware capacity per pattern
+
 
 # --- Instrument Initialization ---
 instrument = minimalmodbus.Instrument(PORT, SLAVE_ADDRESS)
@@ -32,8 +34,8 @@ instrument.serial.timeout = 0.5
 instrument.serial.parity = minimalmodbus.serial.PARITY_EVEN
 instrument.mode = minimalmodbus.MODE_RTU
 
-# --- Define global variable DATA ---
 
+# --- Global Data Variable ---
 DATA = {
         "PID": {},
         "Np": 0, 
@@ -42,6 +44,8 @@ DATA = {
     }
 
 
+
+# --- Utility Functions ---
 def read_controller_data():
     """
     Reads PID parameters and the full step/pattern memory from the CN7800.
@@ -106,6 +110,8 @@ def reset_data():
     DATA["Steps"] = np.zeros((TOTAL_PATTERNS, STEPS_PER_PATTERN, 2))
 
 
+
+# --- Main ---
 def main():
     print(f"Connecting to CN7800 on {PORT}...")
 
