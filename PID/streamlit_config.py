@@ -11,7 +11,6 @@ To run the code, you only need to run :
 "streamlit run path/to/file.py" in your powershell and the interface will automatically pop up. 
 """
 
-
 import streamlit as st
 import minimalmodbus
 import numpy as np
@@ -24,7 +23,6 @@ from streamlit_autorefresh import st_autorefresh
 # --- Page configuration ---
 st.set_page_config(page_title="Omega CN7800 Controller", layout="wide")
 st.title("Omega CN7800 Control Interface")
-
 
 
 # --- Initialize Session State for Logging ---
@@ -104,8 +102,8 @@ def chunk(lst, n):
     """
     Split the total list into chunks of size n
     Args:
-        list: list to split
-        int: size of the chunks that will be created
+        lst (list): list to split
+        n (int): size of the chunks that will be created
     """
     for i in range(0, len(lst), n):
         yield lst[i:i+n] 
