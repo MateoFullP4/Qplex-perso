@@ -63,13 +63,26 @@ Press `Ctrl+]` to exit REPL.
 
 ## 3. Uploading Files on the Wiznet
 
-### Adding a File on the Board
+### Command 1 - Adding a File on the Board
 ```bash
 ampy -p COMx put path-to-file.py name_of_file.py
 ```
 - `path_to_file.py`: Path on your computer
 - `name_of_file.py`: Name to save on the board
 **Important**: Your main program **must be named** `main.py` on the board. MicroPython automatically executes `main.py` on boot. 
+Replace `COMx` with your board's COM port (Windows) or `/dev/ttyUSB0` (Linux).
+
+### Command 2 - Removing a File on the Board
+```bash
+ampy -p COMx rm name_of_file.py
+```
+- `name_of_file.py`: Name of the file to remove on the board. 
+
+### Command 3 - Check the Existing Files
+```bash
+ampy -p COMx ls
+```
+This shows all files currently on the MicroPython board. 
 
 
 
