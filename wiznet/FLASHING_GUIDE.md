@@ -58,6 +58,15 @@ You should see :
 ```bash
 >>>
 ```
+Press `Ctrl+]` to exit REPL. 
+
+
+## 3. Uploading Files on the Wiznet
+
+### Adding a File on the Board
+```bash
+ampy -p COMx put path-to-your-file.py name_of_file.py
+```
 
 
 
