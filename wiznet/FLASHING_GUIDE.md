@@ -53,6 +53,6 @@ This section explains the step-by-step process to flash your W5500-EVB-Pico with
 Open a terminal and check the REPL:
 ```bash
 mpremote connect auto repl
-
+```
 
 
