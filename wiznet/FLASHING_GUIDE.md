@@ -9,15 +9,23 @@ This guide explains how to flash MicroPython and deploy the project files onto a
 ### Hardware
 - W5500-EVB-Pico board
 - USB cable (data-capable)
+- 
+
 
 ### Software
 - **MicroPython UF2 firmware** for Raspberry Pi Pico  
   Download from:  
   https://micropython.org/download/RPI_PICO/
+  Use version v1.26.1 (2025-09-11)
 
-- **Python 3.8+**
 - **mpremote** tool (official MicroPython tool)
 
 Install `mpremote`:
+```bash
+pip install mpremote
+
+- **ampy** tool (official MicroPython tool)
+
+Install `ampy`:
 ```bash
 pip install mpremote
