@@ -87,13 +87,13 @@ This shows all files currently on the MicroPython board.
 
 ## 4. Executing Files 
 
-Now, if you were to just plug the wiznet to the controller and to a power source, it would work just fine and start automatically running `main.py`. \\
-Though, you might want to debug it, by using `mock_values.py` for instance. \\
+Now, if you were to just plug the wiznet to the controller and to a power source, it would work just fine and start automatically running `main.py`. \
+Though, you might want to debug it, by using `mock_values.py` for instance. \
 To do so, you can execute the files by hand using `mpremote`:
 ```bash
 python -m serial.tools.miniterm COMx 115200
 ```
-Please note that `115200` is the baudrate and can be different depending on the model of the Pico. \\
+Please note that `115200` is the baudrate and can be different depending on the model of the Pico. \
 You should see: 
 ```bash
 --- Miniterm on COM7  115200,8,N,1 ---
