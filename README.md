@@ -21,8 +21,8 @@ The parameters of the set ramp are the following :
 - Total number of steps 
 - Final temperature to reach 
 - Time between each step 
-\
-This code gives a nice idea of how ramps work, but **does not handle** overwriting already existing ramps, logs, or any oother form of monitoring. 
+
+This code gives a nice idea of how ramps work, but **does not handle** overwriting already existing ramps, logs, or any other form of monitoring. 
 
 ### 3 - streamlit_config.py
 
