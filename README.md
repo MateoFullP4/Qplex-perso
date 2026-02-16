@@ -6,6 +6,9 @@ This repository compile the codes used to interact with hardware in Qplex projec
 
 ## Documentation
 
+To facilitate the understanding of the codes, I uploaded the **.pdf manuals** of the hardware used in Qplex in this folder (PID, pressure gauge...). \
+
+
 ## PID
 
 ### 1 - pid_monitoring.py
@@ -30,7 +33,16 @@ This code is designed to set up an ergonomic interface to communicate with a CN7
 using Streamlit. \
 An **already existing and more complete documentation** can be found on the internet page that is created when the code is executed. 
 
-## Scraping_Prometheus
+## Test_Pressure_Gauge
+
+### 1 - test_pressure_reading.py
+This code serves as a **quick connection test** with the Graphix One controller to **check for hardware issues**. \
+When executed, the test asks for the current pressure value (in Pascals), then parse the response to 
+extract the float value and then prints it. \
+**Beware** : The parsing part may vary depending on the model of the pressure gauge. For reference, the parsing function used in `../wiznet/main.py` handles scientific expression. 
+
+
+### 2 - test_prometheus_client.py
 
 ## Wiznet
 
