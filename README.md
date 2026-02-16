@@ -1,90 +1,130 @@
 # Qplex-perso
 
-This repository compile the codes used to interact with hardware in Qplex project. It ranges from interfacing PID to setup remote monitoring for pressure gauges.
+This repository compiles the code used to interact with hardware in the Qplex project.  
+It ranges from PID interfacing to setting up remote monitoring for pressure gauges.
 
 ---
 
 ## Documentation
 
-To facilitate the understanding of the codes, I uploaded the **.pdf manuals** of the hardware used in Qplex in this folder (PID, pressure gauge...). 
+To facilitate understanding, the **PDF manuals** of the hardware used in Qplex (PID, pressure gauge, etc.) are included in this repository.
 
+---
 
-## PID
+# PID
 
-### 1 - pid_monitoring.py
+## 1 - `pid_monitoring.py`
 
-This code is designed to print different values of the PID when ran. \
-It **does not include a loop** and therefore only return the values once when executed. \
-This **code's only purpose is to test the hardware connection** and parameters (baudrate, port number...) for the other files in this folder.
+This script prints various PID values when run.  
+It **does not include a loop** and therefore returns the values only once per execution.
 
-### 2 - set_ramp.py
+Its sole purpose is to **test hardware communication and connection parameters** (baud rate, port number, etc.) before running the other scripts in this folder.
 
-This code is designed to **set a ramp** on an Omega CN7800 auto-heater.
-The parameters of the set ramp are the following : 
-- Total number of steps 
-- Final temperature to reach 
-- Time between each step 
+---
 
-This code gives a nice idea of how ramps work, but **does not handle** overwriting already existing ramps, logs, or any other form of monitoring. 
+## 2 - `set_ramp.py`
 
-### 3 - streamlit_config.py
+This script sets a ramp on an **Omega CN7800 auto-heater**.
 
-This code is designed to set up an ergonomic interface to communicate with a CN7800 Omega PID, 
-using Streamlit. \
-An **already existing and more complete documentation** can be found on the internet page that is created when the code is executed. 
+The configurable parameters are:
+- Total number of steps  
+- Final temperature  
+- Time interval between each step  
 
-## Test_Pressure_Gauge
+This implementation demonstrates how ramps operate but **does not handle**:
+- Overwriting existing ramps  
+- Logging  
+- Monitoring  
 
-### 1 - mock_values.py
+---
 
-This program **simulates communication** with a Graphix controller and exposes a **fake pressure measurement** through an HTTP server in Prometheus text exposition format.
-\
-It is intended for **development, testing, and validation** of:
-- Prometheus scraping
-- Network configuration
-- Metric formatting
-- Application logic
+## 3 - `streamlit_config.py`
 
-No real RS232 communication is performed in this file.
+This script provides an ergonomic interface to communicate with a **CN7800 Omega PID** using **Streamlit**.
+
+A more detailed and complete documentation is available directly from the web interface generated when the application is launched.
+
+---
+
+# Test_Pressure_Gauge
+
+## 1 - `mock_values.py`
+
+This program **simulates communication** with a Graphix controller and exposes a **fake pressure measurement** through an HTTP server using the Prometheus text exposition format.
+
+It is intended for development, testing, and validation of:
+
+- Prometheus scraping  
+- Network configuration  
+- Metric formatting  
+- Application logic  
+
+No real RS232 communication is performed.  
 The pressure value is randomly generated to mimic a real sensor.
 
-### 2 - test_pressure_reading.py
+---
 
-This code serves as a **quick connection test** with the Graphix One controller to **check for hardware issues**. \
-When executed, the test asks for the current pressure value (in Pascals), then parse the response to 
-extract the float value and then prints it. \
-**Beware** : The parsing part may vary depending on the model of the pressure gauge. For reference, the parsing function used in `../wiznet/main.py` is different and handles scientific expression better. 
+## 2 - `test_pressure_reading.py`
 
+This script serves as a **quick connection test** for the Graphix One controller.
 
-### 3 - test_prometheus_client.py
+When executed, it:
+1. Requests the current pressure value (in Pascals)  
+2. Parses the controller response  
+3. Extracts and prints the floating-point value  
 
-This code is designed to access and read the pressure value given by a Graphix One controller. \
-This code was used as a first try to **setup and relay data to a Prometheus server.** \
-A more developped version (compatible with MicroPython) can be found in `../wiznet/main.py`. \
-\
-**Beware**: This code **does not setup a local server through ethernet**, and that it can not be downloaded
-as such on a W5500-EVB-pico and only serves as a draft.
+⚠ **Note:**  
+The parsing logic may vary depending on the pressure gauge model.  
+For reference, the parsing function used in `../wiznet/main.py` is more robust and better handles scientific notation.
 
+---
 
-## Wiznet
+## 3 - `test_prometheus_client.py`
 
-### 1 - config.py
-This file centralizes **all configuration parameters** used by `./main.py`. \
+This script reads the pressure value from a Graphix One controller.
 
-The configuration **includes**:
-- Global application settings (scrape interval, HTTP port, metric labels)
-- UART parameters for communication with the Graphix controller
-- SPI and Ethernet parameters for the W5500 network interface
-- Protocol constants used by the Graphix RS232 communication
+It was initially developed to **test Prometheus integration**.
 
-### 2 - main.py
-This program is intended to run on a **W5500-EVB-Pico board**, using **MicroPython**. \
+A more developed and MicroPython-compatible version is available in `../wiznet/main.py`.
 
-This code allows the W5500-EVB-Pico to:
-- Read pressure data from a Graphix One controller over RS232 (UART)
-- Expose the measurements through an Ethernet-based HTTP server
-- Serve the data in Prometheus text exposition format
+⚠ **Limitations:**
+- Does not set up a local Ethernet server  
+- Cannot be directly deployed on a W5500-EVB-Pico  
+- Serves as a development draft only  
 
+---
 
-### 3 - FLASHING_GUIDE.md
-This guide explains how to flash MicroPython and deploy the project files onto a **W5500-EVB-Pico** (Raspberry Pi Pico + Wiznet W5500 Ethernet).
+# Wiznet
+
+## 1 - `config.py`
+
+Centralizes **all configuration parameters** used by `main.py`.
+
+Includes:
+
+- Global application settings (scrape interval, HTTP port, metric labels)  
+- UART parameters for communication with the Graphix controller  
+- SPI and Ethernet configuration for the W5500 interface  
+- Protocol constants for Graphix RS232 communication  
+
+---
+
+## 2 - `main.py`
+
+Designed to run on a **W5500-EVB-Pico board** using **MicroPython**.
+
+It allows the board to:
+
+- Read pressure data from a Graphix One controller via RS232 (UART)  
+- Expose measurements through an Ethernet-based HTTP server  
+- Serve metrics in Prometheus text exposition format  
+
+---
+
+## 3 - `FLASHING_GUIDE.md`
+
+Explains how to:
+
+- Flash MicroPython  
+- Deploy project files  
+- Configure the W5500-EVB-Pico (Raspberry Pi Pico + Wiznet W5500 Ethernet module)  
