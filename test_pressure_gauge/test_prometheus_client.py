@@ -1,14 +1,30 @@
 """
-This code is designed to access and read the pressure value given by a Graphix One controller by Leybold :
-https://www.idealvac.com/files/manuals/Leybold_GRAPHIX_123_Instruction_Manual.pdf?srsltid=AfmBOoqdN6HQTN063OsilJ9S7iyruV-MYv_djclDzcOr8JYWnCZSRBMs
-This code was used as a first try to setup and relay data to a Prometheus server. 
-A more developped version (compatible with MicroPython) can be found in the wiznet folder. 
+Graphix One Prometheus Exporter
 
-Please note that this code does not setup a local server through ethernet, and that it can not be downloaded
-as such on a W5500-EVB-pico and only serves as a draft.
+This script interfaces with a Leybold Graphix One controller over a serial 
+connection in order to read pressure values and expose them as Prometheus metrics.
 
-The 'PORT' variable can vary depending on if you're using Linux of Windows. 
+The program:
+- Implements the Graphix One serial communication protocol (SI, CRC, EOT framing)
+- Periodically queries a specified parameter from the controller
+- Parses the returned scientific-notation value
+- Exposes the pressure measurement via an HTTP endpoint compatible with Prometheus
+- Provides status monitoring (starting / running / error states)
+- Loads configuration parameters from a YAML file
+
+Unlike early draft versions, this script runs as a continuous monitoring service 
+and starts an embedded HTTP server for metric scraping.
+
+Configuration (serial port, baudrate, scrape interval, HTTP port, and global tags) 
+is defined in a config.yml file and can be overridden via command-line arguments.
+
+Note:
+- The serial PORT value depends on the operating system (e.g., COMx on Windows, 
+  /dev/ttyUSBx or /dev/ttyACMx on Linux).
+- This script is designed to run on a standard Python environment and is not 
+  directly compatible with MicroPython-based boards.
 """
+
 import time
 import os
 import logging
