@@ -81,16 +81,22 @@ For reference, the parsing function used in `../wiznet/main.py` is more robust a
 
 ## 3 - `test_prometheus_client.py`
 
-This script reads the pressure value from a Graphix One controller.
+This script implements a **Prometheus exporter** for a Leybold Graphix One pressure controller.
 
-It was initially developed to **test Prometheus integration**.
+It communicates with the controller over a serial connection, periodically reads the pressure value using the Graphix protocol (SI / CRC / EOT framing), and exposes the measurement through an HTTP endpoint compatible with Prometheus.
 
-A more developed and MicroPython-compatible version is available in `../wiznet/main.py`.
+### Features
 
-⚠ **Limitations:**
-- Does not set up a local Ethernet server  
-- Cannot be directly deployed on a W5500-EVB-Pico  
-- Serves as a development draft only  
+- Serial communication with the Graphix One controller  
+- Protocol frame construction and CRC calculation  
+- YAML-based configuration (`config.yml`)  
+- Embedded HTTP server for Prometheus scraping  
+- Pressure metric export (in Pascals)  
+- Scraper status monitoring (`starting` / `running` / `error`)  
+- Logging with optional debug mode  
+
+The script is designed to run as a **continuous monitoring service** in a standard Python environment.
+
 
 ---
 
