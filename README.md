@@ -81,7 +81,7 @@ For reference, the parsing function used in `../wiznet/main.py` is more robust a
 
 ## 3 - `test_prometheus_client.py`
 
-This script implements a **Prometheus exporter** for a Leybold Graphix One pressure controller. This is basically a combination of the two previous codes. \
+This script implements a **Prometheus exporter** for a Leybold Graphix One pressure controller. This is basically a combination of the two previous codes. 
 
 It communicates with the controller over a serial connection, periodically reads the pressure value using the Graphix protocol (SI / CRC / EOT framing), and exposes the measurement through an HTTP endpoint compatible with Prometheus.
 
